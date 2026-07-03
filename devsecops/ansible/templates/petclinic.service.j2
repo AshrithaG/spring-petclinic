@@ -1,0 +1,16 @@
+[Unit]
+Description=Spring PetClinic
+After=network.target
+
+[Service]
+User=petclinic
+ExecStart=/usr/bin/java -jar {{ deploy_dir }}/spring-petclinic.jar --server.port=8080
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=petclinic
+
+[Install]
+WantedBy=multi-user.target

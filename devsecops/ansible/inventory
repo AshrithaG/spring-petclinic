@@ -1,0 +1,2 @@
+[production]
+prod-server ansible_user=deploy ansible_password=deploy123 ansible_become=true ansible_become_password=deploy123 ansible_ssh_common_args='-o StrictHostKeyChecking=no'

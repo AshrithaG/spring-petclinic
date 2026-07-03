@@ -1,0 +1,12 @@
+blueocean
+sonar
+prometheus
+ansible
+git
+workflow-aggregator
+pipeline-stage-view
+credentials-binding
+ssh-agent
+htmlpublisher
+docker-workflow
+junit
