@@ -4,7 +4,7 @@
   become: true
   vars:
     deploy_dir: /opt/petclinic
-    jar_src: "/workspace/target/spring-petclinic-4.0.0-SNAPSHOT.jar"
+    jar_src: "{{ workspace }}/target/spring-petclinic-4.0.0-SNAPSHOT.jar"
 
   tasks:
     - name: ensure deploy directory exists

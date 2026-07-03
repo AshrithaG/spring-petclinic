@@ -113,6 +113,14 @@ services:
     build: ./prod-server
     container_name: prod-server
     restart: unless-stopped
+    privileged: true
+    cgroup: host
+    stop_signal: SIGRTMIN+3
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     ports:
       - "2222:22"
       - "8181:8080"

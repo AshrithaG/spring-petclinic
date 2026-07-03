@@ -56,7 +56,7 @@ pipeline {
                     playbook: 'devsecops/ansible/playbook.yml',
                     inventory: 'devsecops/ansible/inventory',
                     disableHostKeyChecking: true,
-                    extras: '-e ansible_ssh_pass=deploy123 -e ansible_become_pass=deploy123'
+                    extras: "-e workspace=${WORKSPACE} -e ansible_ssh_pass=deploy123 -e ansible_become_pass=deploy123"
                 )
             }
         }
