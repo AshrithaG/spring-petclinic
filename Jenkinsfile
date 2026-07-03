@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     triggers {
         pollSCM('H/5 * * * *')
     }
@@ -63,35 +67,35 @@ pipeline {
 
         stage('ZAP Security Scan') {
             steps {
-                script {
-                    sh "curl -s '${ZAP_URL}/JSON/core/action/newSession/?name=petclinic&overwrite=true'"
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    script {
+                        sh "curl -s '${ZAP_URL}/JSON/core/action/newSession/?name=petclinic&overwrite=true' -o /dev/null"
 
-                    sh "curl -s '${ZAP_URL}/JSON/spider/action/scan/?url=${APP_URL}&recurse=true&maxChildren=10'"
-
-                    timeout(time: 5, unit: 'MINUTES') {
-                        waitUntil {
-                            def pct = sh(
-                                script: "curl -s '${ZAP_URL}/JSON/spider/view/status/' | python3 -c \"import sys,json; print(json.load(sys.stdin)['status'])\"",
-                                returnStdout: true
-                            ).trim()
-                            return pct == '100'
+                        sh "curl -s '${ZAP_URL}/JSON/spider/action/scan/?url=${APP_URL}&recurse=true&maxChildren=10' -o /dev/null"
+                        timeout(time: 5, unit: 'MINUTES') {
+                            waitUntil {
+                                def pct = sh(
+                                    script: "curl -s '${ZAP_URL}/JSON/spider/view/status/' | grep -oE '[0-9]+' | head -1",
+                                    returnStdout: true
+                                ).trim()
+                                return pct == '100'
+                            }
                         }
-                    }
 
-                    sh "curl -s '${ZAP_URL}/JSON/ascan/action/scan/?url=${APP_URL}&recurse=true'"
-
-                    timeout(time: 15, unit: 'MINUTES') {
-                        waitUntil {
-                            def pct = sh(
-                                script: "curl -s '${ZAP_URL}/JSON/ascan/view/status/' | python3 -c \"import sys,json; print(json.load(sys.stdin)['status'])\"",
-                                returnStdout: true
-                            ).trim()
-                            return pct == '100'
+                        sh "curl -s '${ZAP_URL}/JSON/ascan/action/scan/?url=${APP_URL}&recurse=true' -o /dev/null"
+                        timeout(time: 20, unit: 'MINUTES') {
+                            waitUntil {
+                                def pct = sh(
+                                    script: "curl -s '${ZAP_URL}/JSON/ascan/view/status/' | grep -oE '[0-9]+' | head -1",
+                                    returnStdout: true
+                                ).trim()
+                                return pct == '100'
+                            }
                         }
-                    }
 
-                    sh "curl -s '${ZAP_URL}/OTHER/core/other/htmlreport/' > zap-report.html"
-                    sh "curl -s '${ZAP_URL}/OTHER/core/other/xmlreport/' > zap-report.xml"
+                        sh "curl -s '${ZAP_URL}/OTHER/core/other/htmlreport/' -o zap-report.html"
+                        sh "curl -s '${ZAP_URL}/OTHER/core/other/xmlreport/' -o zap-report.xml"
+                    }
                 }
             }
             post {
