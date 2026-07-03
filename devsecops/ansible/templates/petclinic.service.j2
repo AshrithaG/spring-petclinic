@@ -3,7 +3,7 @@ Description=Spring PetClinic
 After=network.target
 
 [Service]
-User=petclinic
+User={{ app_user }}
 ExecStart=/usr/bin/java -jar {{ deploy_dir }}/spring-petclinic.jar --server.port=8080
 SuccessExitStatus=143
 Restart=on-failure

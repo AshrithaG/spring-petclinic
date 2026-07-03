@@ -4,6 +4,7 @@
   become: true
   vars:
     deploy_dir: /opt/petclinic
+    app_user: deploy
     jar_src: "{{ workspace }}/target/spring-petclinic-4.0.0-SNAPSHOT.jar"
 
   tasks:
@@ -11,8 +12,8 @@
       file:
         path: "{{ deploy_dir }}"
         state: directory
-        owner: petclinic
-        group: petclinic
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
         mode: "0755"
 
     - name: stop service before replacing jar
@@ -25,8 +26,8 @@
       copy:
         src: "{{ jar_src }}"
         dest: "{{ deploy_dir }}/spring-petclinic.jar"
-        owner: petclinic
-        group: petclinic
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
         mode: "0755"
 
     - name: install systemd unit file
