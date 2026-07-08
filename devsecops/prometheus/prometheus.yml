@@ -1,0 +1,22 @@
+# Prometheus configuration for the petclinic DevSecOps pipeline.
+#
+# Scrapes:
+#   - itself (health of the monitoring stack)
+#   - Jenkins, via the Jenkins "Prometheus metrics" plugin, which exposes
+#     metrics at http://jenkins:8080/prometheus/ on the devsecops-net
+#     Docker network. Authentication for that endpoint must be disabled
+#     in Manage Jenkins -> System -> Prometheus (see README step 8).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "jenkins"
+    metrics_path: "/prometheus/"
+    static_configs:
+      - targets: ["jenkins:8080"]

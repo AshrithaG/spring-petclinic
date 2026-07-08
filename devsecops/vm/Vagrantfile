@@ -1,0 +1,58 @@
+# Production web server VM for the petclinic DevSecOps pipeline.
+#
+# Creates an Ubuntu 22.04 VM at a fixed private IP (192.168.56.10) and
+# authorizes the Jenkins deploy key so Ansible can SSH in.
+#
+# Before `vagrant up`, place the Jenkins deploy PUBLIC key next to this
+# file as jenkins_key.pub (see README step 3):
+#   ssh-keygen -t ed25519 -f jenkins_key -C jenkins-deploy -N ""
+#
+# NOTE for Apple Silicon Macs: x86 VirtualBox boxes will not boot. Either
+# use an ARM box with a supported provider (e.g. bento/ubuntu-22.04 for
+# vmware_desktop / parallels, or bento/ubuntu-22.04-arm64 with
+# VirtualBox >= 7.1), or skip Vagrant entirely and use Multipass — the
+# README documents the exact Multipass commands.
+
+JENKINS_PUBKEY = File.expand_path("jenkins_key.pub", __dir__)
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-22.04"
+  config.vm.hostname = "petclinic-prod"
+
+  # Fixed IP referenced by devsecops/ansible/inventory.ini and the
+  # PROD_HOST variable in the Jenkinsfile.
+  config.vm.network "private_network", ip: "192.168.56.10"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "petclinic-prod"
+    vb.memory = 2048
+    vb.cpus = 2
+  end
+
+  config.vm.provider "vmware_desktop" do |v|
+    v.vmx["memsize"] = "2048"
+    v.vmx["numvcpus"] = "2"
+  end
+
+  config.vm.provider "parallels" do |prl|
+    prl.memory = 2048
+    prl.cpus = 2
+  end
+
+  # Authorize the Jenkins deploy key for the 'vagrant' user so Ansible
+  # (running inside the Jenkins container) can connect.
+  if File.exist?(JENKINS_PUBKEY)
+    config.vm.provision "file", source: JENKINS_PUBKEY, destination: "/tmp/jenkins_key.pub"
+    config.vm.provision "shell", inline: <<-SHELL
+      install -d -m 700 -o vagrant -g vagrant /home/vagrant/.ssh
+      touch /home/vagrant/.ssh/authorized_keys
+      grep -q -f /tmp/jenkins_key.pub /home/vagrant/.ssh/authorized_keys || \
+        cat /tmp/jenkins_key.pub >> /home/vagrant/.ssh/authorized_keys
+      chmod 600 /home/vagrant/.ssh/authorized_keys
+      chown vagrant:vagrant /home/vagrant/.ssh/authorized_keys
+    SHELL
+  else
+    config.vm.post_up_message = "WARNING: devsecops/vm/jenkins_key.pub not found - " \
+      "generate the Jenkins deploy key (README step 3) and run 'vagrant provision'."
+  end
+end

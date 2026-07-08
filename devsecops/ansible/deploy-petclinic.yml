@@ -1,0 +1,88 @@
+---
+# Deploys the spring-petclinic fat JAR to the production VM and runs it
+# as a systemd service.
+#
+# Invoked by the Jenkins pipeline after a successful build + analysis:
+#   ansible-playbook -i inventory.ini deploy-petclinic.yml \
+#       -e jar_file=$WORKSPACE/target/petclinic.jar
+#
+# Idempotent: re-running only restarts the service when the JAR changed.
+
+- name: Deploy spring-petclinic to the production web server
+  hosts: prod
+  become: true
+
+  vars:
+    app_user: petclinic
+    app_dir: /opt/petclinic
+    app_port: 8080
+    # Overridden by Jenkins with -e jar_file=...
+    jar_file: "{{ playbook_dir }}/../../target/petclinic.jar"
+
+  tasks:
+    - name: Install Java 17 runtime
+      ansible.builtin.apt:
+        name: openjdk-17-jre-headless
+        state: present
+        update_cache: true
+
+    - name: Create application user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ app_dir }}"
+        create_home: false
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Copy application JAR
+      ansible.builtin.copy:
+        src: "{{ jar_file }}"
+        dest: "{{ app_dir }}/petclinic.jar"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0644"
+      notify: Restart petclinic
+
+    - name: Install systemd service unit
+      ansible.builtin.template:
+        src: templates/petclinic.service.j2
+        dest: /etc/systemd/system/petclinic.service
+        mode: "0644"
+      notify: Restart petclinic
+
+    - name: Enable and start petclinic service
+      ansible.builtin.systemd:
+        name: petclinic
+        state: started
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: Restart petclinic
+      ansible.builtin.systemd:
+        name: petclinic
+        state: restarted
+        daemon_reload: true
+
+  post_tasks:
+    - name: Wait for the application to answer on port {{ app_port }}
+      ansible.builtin.wait_for:
+        port: "{{ app_port }}"
+        host: 127.0.0.1
+        delay: 5
+        timeout: 120
+
+    - name: Verify the welcome page is served
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_port }}/"
+        return_content: true
+      register: welcome
+      failed_when: welcome.status != 200

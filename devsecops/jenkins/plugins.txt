@@ -1,0 +1,26 @@
+# Jenkins plugins for the petclinic DevSecOps pipeline.
+# Installed at image build time by jenkins-plugin-cli.
+
+# Pipeline + UI
+workflow-aggregator
+blueocean
+pipeline-stage-view
+timestamper
+
+# Source control
+git
+github
+
+# Static analysis
+sonar
+
+# Monitoring (exposes /prometheus metrics endpoint for Prometheus to scrape)
+prometheus
+
+# Deployment (SSH key handling for Ansible)
+ssh-agent
+credentials-binding
+
+# Reports
+htmlpublisher
+junit

@@ -1,0 +1,12 @@
+# Auto-provisions Prometheus as Grafana's default data source.
+# Grafana reaches Prometheus by container name over devsecops-net.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

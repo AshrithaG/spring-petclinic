@@ -46,3 +46,8 @@ out/
 _site/
 *.css
 !petclinic.css
+
+### DevSecOps pipeline (never commit deploy keys / VM state) ###
+devsecops/vm/jenkins_key
+devsecops/vm/jenkins_key.pub
+devsecops/vm/.vagrant/

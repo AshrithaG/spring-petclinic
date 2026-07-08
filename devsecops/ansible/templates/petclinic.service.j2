@@ -1,0 +1,14 @@
+[Unit]
+Description=Spring PetClinic web application
+After=network.target
+
+[Service]
+User={{ app_user }}
+WorkingDirectory={{ app_dir }}
+ExecStart=/usr/bin/java -jar {{ app_dir }}/petclinic.jar --server.port={{ app_port }}
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
