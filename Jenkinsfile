@@ -39,7 +39,7 @@ pipeline {
 
     environment {
         // Production VM IP - must match devsecops/ansible/inventory.ini
-        PROD_HOST = '192.168.56.10'
+        PROD_HOST = '192.168.252.2'
         APP_URL   = "http://${PROD_HOST}:8080"
         // ZAP daemon, reachable by container name on devsecops-net
         ZAP_URL   = 'http://zap:8090'
