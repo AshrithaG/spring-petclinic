@@ -270,6 +270,16 @@ The `Jenkinsfile` references `prod-vm-ssh` in the deploy stage via the
 No scanner install is needed — the pipeline runs analysis through Maven
 (`./mvnw sonar:sonar`), which downloads the scanner plugin itself.
 
+**Quality-gate policy (documented design choice):** the pipeline's *Quality
+Gate* stage waits for SonarQube's verdict via the webhook, but is
+deliberately **non-blocking** — a failed gate marks the build UNSTABLE
+(yellow) instead of aborting before deployment. Rationale: the gate
+evaluates the inherited petclinic baseline, so a strict gate would block
+unrelated delivery work on day one; marking UNSTABLE keeps the signal
+visible while CD stays flowing. To make the gate strictly blocking instead,
+set `waitForQualityGate abortPipeline: true` and drop the surrounding
+`catchError` in the Jenkinsfile's Quality Gate stage.
+
 ## 8. Configure the Prometheus plugin in Jenkins
 
 1. *Manage Jenkins → System* → scroll to **Prometheus** section.
