@@ -49,6 +49,10 @@ pipeline {
 
         stage('Build & Unit Tests') {
             steps {
+                // The ZAP report from the previous build lives in the
+                // workspace and is full of http:// URLs, which the nohttp
+                // checkstyle rule would reject - remove it before building.
+                sh 'rm -rf zap-reports'
                 // MySqlIntegrationTests / PostgresIntegrationTests need a
                 // Docker daemon (Testcontainers), which the Jenkins
                 // container does not have - exclude them.
