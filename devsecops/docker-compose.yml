@@ -103,5 +103,12 @@ services:
       -config api.addrs.addr.regex=true
     ports:
       - "8090:8090"
+    # The image's built-in healthcheck probes ZAP's default port 8080;
+    # we run the daemon on 8090, so probe that instead.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/JSON/core/view/version/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - devsecops-net
