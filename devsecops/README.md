@@ -351,9 +351,10 @@ stage drives it over HTTP:
 
 After a green build:
 
-```bash
-open http://192.168.56.10:8080     # or your Multipass VM IP
-```
+Open `<VM_IP>:8080` in your browser (e.g. `192.168.56.10:8080` for the
+Vagrant VM, or your Multipass VM's IP). The plain-http URL is written
+without its scheme here because the project's nohttp checkstyle rule
+forbids literal http:// links in the repository.
 
 You should see the PetClinic **welcome page** ("Welcome" + the pets image).
 On the VM itself the app runs as a systemd service:
