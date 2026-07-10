@@ -99,7 +99,7 @@
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "vm_memory_heap_usage_value", "legendFormat": "heap usage" }
+        { "refId": "A", "expr": "vm_memory_heap_usage", "legendFormat": "heap usage" }
       ],
       "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "color": { "mode": "palette-classic" } }, "overrides": [] }
     },
@@ -110,8 +110,8 @@
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "default_jenkins_builds_success_build_count", "legendFormat": "success {{jenkins_job}}" },
-        { "refId": "B", "expr": "default_jenkins_builds_failed_build_count", "legendFormat": "failed {{jenkins_job}}" }
+        { "refId": "A", "expr": "default_jenkins_builds_success_build_count_total", "legendFormat": "success {{jenkins_job}}" },
+        { "refId": "B", "expr": "default_jenkins_builds_failed_build_count_total", "legendFormat": "failed {{jenkins_job}}" }
       ],
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
     },
@@ -122,7 +122,7 @@
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "http_activeRequests_value", "legendFormat": "active requests" }
+        { "refId": "A", "expr": "http_activeRequests", "legendFormat": "active requests" }
       ],
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
     }
