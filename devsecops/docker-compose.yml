@@ -1,15 +1,6 @@
-# DevSecOps pipeline infrastructure for spring-petclinic
-#
-# Brings up Jenkins, SonarQube, Prometheus, Grafana and OWASP ZAP on a
-# custom bridge network (devsecops-net) so every service can reach the
-# others by container name (http://sonarqube:9000, http://zap:8090, ...).
-#
-# Usage (from the devsecops/ directory):
-#   docker compose up -d --build
-#
-# The production web server is NOT part of this compose file on purpose:
-# per the assignment it is a separate VM, provisioned with Vagrant (or
-# Multipass on Apple Silicon) and deployed to with Ansible from Jenkins.
+# Jenkins, SonarQube, Prometheus, Grafana and OWASP ZAP on one custom
+# bridge network so they can reach each other by container name.
+# The production server is a separate VM, not part of this file.
 
 name: petclinic-devsecops
 
@@ -33,10 +24,10 @@ services:
     container_name: jenkins
     restart: unless-stopped
     ports:
-      # Host port 8081 (8080 is often taken - e.g. by other containers or
-      # local apps). Inside devsecops-net Jenkins is still jenkins:8080.
-      - "8081:8080"   # Jenkins UI -> http://localhost:8081
-      - "50000:50000" # inbound agents (not used, but standard)
+      # host port 8081 because 8080 is a common conflict,
+      # inside the network Jenkins stays jenkins:8080
+      - "8081:8080"
+      - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
     networks:
@@ -49,7 +40,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      # Skips Elasticsearch bootstrap checks (vm.max_map_count) for a dev setup
+      # skip the elasticsearch bootstrap checks in this dev setup
       SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
     volumes:
       - sonarqube_data:/opt/sonarqube/data
@@ -93,9 +84,7 @@ services:
     image: ghcr.io/zaproxy/zaproxy:stable
     container_name: zap
     restart: unless-stopped
-    # Run ZAP as a long-lived daemon with its REST API open to the
-    # devsecops network. The Jenkins pipeline drives scans through this
-    # API (spider -> passive/active scan -> HTML report).
+    # long running daemon, the pipeline drives scans through its REST API
     command: >
       zap.sh -daemon -host 0.0.0.0 -port 8090
       -config api.disablekey=true
@@ -103,8 +92,7 @@ services:
       -config api.addrs.addr.regex=true
     ports:
       - "8090:8090"
-    # The image's built-in healthcheck probes ZAP's default port 8080;
-    # we run the daemon on 8090, so probe that instead.
+    # the image healthcheck probes port 8080, the daemon runs on 8090
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8090/JSON/core/view/version/"]
       interval: 30s

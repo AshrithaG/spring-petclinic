@@ -1,5 +1,4 @@
-# Auto-provisions Prometheus as Grafana's default data source.
-# Grafana reaches Prometheus by container name over devsecops-net.
+# Adds Prometheus as the default data source on first boot.
 apiVersion: 1
 
 datasources:

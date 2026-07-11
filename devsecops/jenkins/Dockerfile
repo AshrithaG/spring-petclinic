@@ -1,13 +1,6 @@
-# Custom Jenkins controller image for the petclinic DevSecOps pipeline.
-#
-# Adds on top of the official LTS image:
-#   - Ansible + OpenSSH client, so the pipeline can deploy to the
-#     production VM with ansible-playbook over SSH
-#   - curl / jq, used by the pipeline to drive the ZAP REST API
-#   - All required plugins pre-installed from plugins.txt
-#
-# JDK 21 runs Jenkins itself and is also used by ./mvnw to build
-# petclinic (pom targets Java 17; compiling with a newer JDK is fine).
+# Jenkins controller with Ansible for deployments, curl and jq for the
+# ZAP REST API, and all plugins preinstalled. JDK 21 also builds the
+# project through the Maven wrapper.
 
 FROM jenkins/jenkins:lts-jdk21
 
@@ -26,7 +19,6 @@ RUN apt-get update && \
     ansible-galaxy collection install ansible.posix community.general && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Pre-install Jenkins plugins so no manual plugin hunting is needed
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
 RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
 

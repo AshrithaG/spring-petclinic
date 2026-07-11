@@ -1,14 +1,9 @@
-# cloud-init for the production VM when using Multipass (recommended on
-# Apple Silicon Macs, where x86 VirtualBox boxes do not run).
+# cloud-init for a manually created Multipass VM. bootstrap.sh generates
+# its own copy of this with the real key, so this file is only needed for
+# the manual path. Replace the key line with the contents of jenkins_key.pub.
 #
-# Replace the ssh key below with the contents of devsecops/vm/jenkins_key.pub,
-# then launch:
 #   multipass launch 22.04 --name petclinic-prod --cpus 2 --memory 2G \
 #       --disk 10G --cloud-init devsecops/vm/multipass-cloud-init.yml
-#
-# Afterwards get the VM IP with `multipass info petclinic-prod` and put it
-# in devsecops/ansible/inventory.ini (ansible_user=ubuntu) and in the
-# PROD_HOST variable of the Jenkinsfile.
 
 users:
   - default

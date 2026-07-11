@@ -1,0 +1,62 @@
+# Jenkins Configuration as Code, applied when CASC_JENKINS_CONFIG is set.
+# Used by the automated setup (bootstrap.sh). The manual setup path in the
+# README does not use this file.
+
+jenkins:
+  systemMessage: "PetClinic DevSecOps pipeline"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "prod-vm-ssh"
+              username: "ubuntu"
+              description: "deploy key for the production VM"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${prod_vm_key}"
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              description: "SonarQube analysis token"
+              secret: "${SONAR_TOKEN}"
+
+unclassified:
+  location:
+    url: "http://localhost:8081/"
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        credentialsId: "sonar-token"
+
+jobs:
+  - script: >
+      pipelineJob('spring-petclinic') {
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${REPO_URL}') }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+          }
+        }
+      }
+
+      queue('spring-petclinic')

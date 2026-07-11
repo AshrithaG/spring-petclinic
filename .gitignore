@@ -51,3 +51,4 @@ _site/
 devsecops/vm/jenkins_key
 devsecops/vm/jenkins_key.pub
 devsecops/vm/.vagrant/
+devsecops/.env

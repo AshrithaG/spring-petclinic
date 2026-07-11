@@ -1,5 +1,4 @@
-# Auto-loads every dashboard JSON found in /var/lib/grafana/dashboards
-# (bind-mounted from devsecops/grafana/dashboards on the host).
+# Loads every dashboard JSON found in /var/lib/grafana/dashboards.
 apiVersion: 1
 
 providers:

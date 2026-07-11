@@ -1,23 +1,17 @@
 ---
-# Deploys the spring-petclinic fat JAR to the production VM and runs it
-# as a systemd service.
-#
-# Invoked by the Jenkins pipeline after a successful build + analysis:
-#   ansible-playbook -i inventory.ini deploy-petclinic.yml \
-#       -e jar_file=$WORKSPACE/target/petclinic.jar
-#
-# Idempotent: re-running only restarts the service when the JAR changed.
+# Deploys the petclinic JAR to the production VM as a systemd service.
+# The pipeline calls it with an inline inventory:
+#   ansible-playbook -i "$PROD_HOST," -e ansible_user=ubuntu \
+#     -e jar_file=$WORKSPACE/target/petclinic.jar deploy-petclinic.yml
 
 - name: Deploy spring-petclinic to the production web server
-  hosts: prod
+  hosts: all
   become: true
 
   vars:
     app_user: petclinic
     app_dir: /opt/petclinic
     app_port: 8080
-    # Overridden by Jenkins with -e jar_file=...
-    jar_file: "{{ playbook_dir }}/../../target/petclinic.jar"
 
   tasks:
     - name: Install Java 17 runtime
@@ -73,14 +67,14 @@
         daemon_reload: true
 
   post_tasks:
-    - name: Wait for the application to answer on port {{ app_port }}
+    - name: Wait for the application port
       ansible.builtin.wait_for:
         port: "{{ app_port }}"
         host: 127.0.0.1
         delay: 5
         timeout: 120
 
-    - name: Verify the welcome page is served
+    - name: Check the welcome page answers
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ app_port }}/"
         return_content: true

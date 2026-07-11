@@ -1,136 +1,117 @@
-# DevSecOps Pipeline for Spring PetClinic — Step-by-Step Instructions
+# DevSecOps Pipeline for Spring PetClinic
 
-A complete containerized DevSecOps pipeline for the
-[spring-petclinic](https://github.com/spring-projects/spring-petclinic) project:
+This project builds a complete DevSecOps pipeline around the Spring PetClinic application. A code push to GitHub is picked up by Jenkins, built and tested, analyzed by SonarQube, deployed to a production VM with Ansible, smoke tested, and finally scanned by OWASP ZAP. Prometheus collects Jenkins metrics and Grafana visualizes them.
+
+All five tools run as Docker containers on one custom bridge network called devsecops-net. Containers reach each other by name, for example http://sonarqube:9000 or http://zap:8090. The production web server is deliberately not a container. It is a real Ubuntu VM, because that is what the assignment asks for and because it forces the deployment to work over SSH like a real remote server would.
 
 | Concern | Tool | Where it runs |
 |---|---|---|
-| Continuous Integration | Jenkins (+ Blue Ocean) | Docker container |
-| Static analysis (SAST) | SonarQube | Docker container |
-| Dynamic security analysis (DAST) | OWASP ZAP | Docker container |
+| Continuous integration | Jenkins with Blue Ocean | Docker container |
+| Static analysis | SonarQube | Docker container |
+| Dynamic security scan | OWASP ZAP | Docker container |
 | Metrics collection | Prometheus | Docker container |
-| Metrics visualization | Grafana | Docker container |
-| Production deployment | Ansible (from Jenkins) | → Ubuntu VM |
+| Dashboards | Grafana | Docker container |
+| Production deployment | Ansible, invoked by Jenkins | Ubuntu VM |
 
-All five tool containers are attached to one custom Docker bridge network,
-**`devsecops-net`**, so they address each other by container name
-(`http://sonarqube:9000`, `http://zap:8090`, `http://jenkins:8080`, …).
-The **production web server is a real VM** (Vagrant or Multipass), *not* a
-container — Jenkins deploys to it over SSH using Ansible.
+## Repository layout
 
 ```
-                        ┌────────────────────────  devsecops-net (Docker)  ───────────────────────┐
-                        │                                                                          │
- GitHub fork ──poll──▶  │  Jenkins ──mvn──▶ build/test ──▶ SonarQube (SAST)                        │
- (spring-petclinic)     │     │                                                                    │
-                        │     ├────────── /prometheus ◀── Prometheus ◀── Grafana (dashboards)      │
-                        │     │                                                                    │
-                        │     └──ansible/ssh──────────────┐        ZAP (DAST) ──scan──┐            │
-                        └─────────────────────────────────┼───────────────────────────┼────────────┘
-                                                          ▼                           ▼
-                                                   Production VM  ◀───────── http://VM_IP:8080
-                                                   (Ubuntu + systemd + petclinic.jar)
-```
-
-### Repository layout of the added files
-
-```
-Jenkinsfile                                  ← pipeline definition (checked out by Jenkins)
+Jenkinsfile                       pipeline definition, checked out by Jenkins on every build
 devsecops/
-├── README.md                                ← this document
-├── docker-compose.yml                       ← Jenkins, SonarQube, Prometheus, Grafana, ZAP + custom network
-├── jenkins/
-│   ├── Dockerfile                           ← Jenkins LTS + Ansible + curl/jq + plugins
-│   └── plugins.txt                          ← Blue Ocean, Sonar, Prometheus, HTML Publisher, ssh-agent, …
-├── prometheus/prometheus.yml                ← scrapes Jenkins /prometheus endpoint
-├── grafana/
-│   ├── provisioning/datasources/prometheus.yml   ← auto-adds Prometheus data source
-│   ├── provisioning/dashboards/dashboards.yml    ← auto-loads dashboards
-│   └── dashboards/jenkins.json              ← Jenkins metrics dashboard
-├── ansible/
-│   ├── ansible.cfg
-│   ├── inventory.ini                        ← production VM address  (EDIT the IP)
-│   ├── deploy-petclinic.yml                 ← playbook: Java 17 + systemd service + JAR
-│   └── templates/petclinic.service.j2
-└── vm/
-    ├── Vagrantfile                          ← Ubuntu 22.04 production VM @ 192.168.56.10
-    └── multipass-cloud-init.yml             ← alternative for Apple Silicon Macs
+  bootstrap.sh                    fully automated setup, one command, no manual clicks
+  docker-compose.yml              the five tool containers plus the custom network
+  docker-compose.auto.yml         overlay used only by bootstrap.sh
+  jenkins/
+    Dockerfile                    Jenkins LTS plus Ansible, curl, jq and all plugins
+    plugins.txt                   plugin list installed at image build time
+    casc.yaml                     Jenkins Configuration as Code, used by bootstrap.sh
+  prometheus/prometheus.yml       scrape config for the Jenkins metrics endpoint
+  grafana/
+    provisioning/                 auto-provisioned data source and dashboard loader
+    dashboards/jenkins.json       custom Jenkins dashboard
+  ansible/
+    ansible.cfg
+    deploy-petclinic.yml          playbook that installs Java and runs the app as a service
+    templates/petclinic.service.j2
+  vm/
+    Vagrantfile                   VM definition for the Vagrant path
+    multipass-cloud-init.yml      VM init for the Multipass path
 ```
 
----
+## Prerequisites
 
-## 0. Prerequisites
+- Docker Desktop with at least 4 GB of memory. SonarQube alone needs about 2 GB and gets killed with exit code 137 if Docker has less.
+- A hypervisor for the production VM. On Apple Silicon Macs use Multipass, since VirtualBox images for x86 do not boot there. On Intel machines Vagrant with VirtualBox works and a Vagrantfile is included.
+- A GitHub account and git.
 
-- **Docker Desktop** (or Docker Engine + Compose v2), ≥ 4 GB RAM allotted —
-  SonarQube alone wants ~2 GB.
-- **A hypervisor for the production VM** — one of:
-  - VirtualBox + Vagrant (Intel machines; VirtualBox ≥ 7.1 for ARM Macs),
-  - VMware Fusion/Workstation or Parallels + Vagrant, or
-  - **Multipass** (easiest on Apple Silicon): `brew install multipass`.
-- A **GitHub account** and `git`.
+## Option A: fully automated setup
 
-## 1. Fork and clone the repository
+Everything below in Option B can be done with a single command. The script creates the deploy key, launches the production VM, configures SonarQube through its API, and starts Jenkins preconfigured through Configuration as Code. There is no setup wizard, no manual plugin installation, no clicking through credential screens. The pipeline job is created automatically and the first build is queued on boot.
 
-1. On GitHub, open <https://github.com/spring-projects/spring-petclinic> and
-   click **Fork**.
-2. Clone **your fork** (not upstream) and add the pipeline files
-   (`Jenkinsfile` + `devsecops/`) from this submission:
+```bash
+git clone https://github.com/<YOUR_USER>/spring-petclinic.git
+cd spring-petclinic/devsecops
+./bootstrap.sh https://github.com/<YOUR_USER>/spring-petclinic.git
+```
 
-   ```bash
-   git clone https://github.com/<YOUR_USER>/spring-petclinic.git
-   cd spring-petclinic
-   # copy Jenkinsfile and devsecops/ into the repo root if not already there
-   git add Jenkinsfile devsecops .gitignore
-   git commit -m "Add DevSecOps pipeline (Jenkins, Sonar, ZAP, Prometheus, Grafana, Ansible)"
-   git push origin main
-   ```
+What the script does, step by step:
 
-   > If your local clone's `origin` still points at `spring-projects/…`, fix it:
-   > `git remote set-url origin https://github.com/<YOUR_USER>/spring-petclinic.git`
+1. Generates an SSH keypair at vm/jenkins_key if one does not exist. Jenkins later uses this key to reach the VM.
+2. Launches an Ubuntu 22.04 VM named petclinic-prod with Multipass and authorizes the public key for the ubuntu user through cloud-init.
+3. Starts only SonarQube first and waits until its API reports UP. It then changes the default admin password, because SonarQube refuses to work with admin/admin, generates a global analysis token, and registers the webhook that lets the pipeline receive quality gate results. All of this happens through the SonarQube REST API.
+4. Writes a .env file containing the admin credentials, the token, the VM address and the repository URL. Docker Compose reads this file automatically. The file is gitignored because it contains secrets.
+5. Starts the whole stack with the docker-compose.auto.yml overlay. That overlay disables the Jenkins setup wizard and points Jenkins at jenkins/casc.yaml. The casc file creates the admin user, both credentials (the SSH key comes in as a Docker secret, the token from the environment), the SonarQube server entry, and the pipeline job itself. The job definition ends with queue(), so the first build starts without anyone pressing a button.
 
-   The `Jenkinsfile` **must be pushed to the fork** — Jenkins checks it out
-   from GitHub on every build.
+When the script prints its summary, the first build is already running. It can be watched at http://localhost:8081/job/spring-petclinic/ or in Blue Ocean. After it finishes the application is live at the VM address the script printed.
 
-## 2. Create the custom Docker network and the tool containers
+To start over from scratch: `docker compose down -v` and `multipass delete --purge petclinic-prod`, then run the script again.
 
-Everything is captured in [docker-compose.yml](docker-compose.yml). From the
-repo root:
+## Option B: manual setup
+
+These are the same steps the script automates. They are documented so the setup can be understood and reproduced by hand.
+
+### 1. Fork and clone
+
+Fork https://github.com/spring-projects/spring-petclinic on GitHub, then clone your fork. Make sure origin points at your fork and not at the upstream project, otherwise pushes and polling will not work:
+
+```bash
+git remote set-url origin https://github.com/<YOUR_USER>/spring-petclinic.git
+```
+
+The Jenkinsfile and the devsecops folder must be committed and pushed to the fork. Jenkins pulls the Jenkinsfile from GitHub on every build, so a local copy is not enough.
+
+### 2. Create the network and the containers
 
 ```bash
 cd devsecops
 docker compose up -d --build
 ```
 
-This builds the custom Jenkins image (Ansible + plugins baked in), creates the
-**`devsecops-net`** bridge network, and starts all five services:
+This builds the custom Jenkins image and starts all five services on devsecops-net:
 
-| Service | URL (host) | Name on devsecops-net |
+| Service | URL on the host | Name inside the network |
 |---|---|---|
-| Jenkins | http://localhost:8081 | `jenkins:8080` |
-| SonarQube | http://localhost:9000 | `sonarqube:9000` |
-| Prometheus | http://localhost:9090 | `prometheus:9090` |
-| Grafana | http://localhost:3000 | `grafana:3000` |
-| ZAP (daemon API) | http://localhost:8090 | `zap:8090` |
+| Jenkins | http://localhost:8081 | jenkins:8080 |
+| SonarQube | http://localhost:9000 | sonarqube:9000 |
+| Prometheus | http://localhost:9090 | prometheus:9090 |
+| Grafana | http://localhost:3000 | grafana:3000 |
+| ZAP | http://localhost:8090 | zap:8090 |
 
-Verify: `docker network inspect devsecops-net` should list all 5 containers,
-and `docker compose ps` should show them `running` (SonarQube takes ~1–2 min
-to become healthy).
+Jenkins is published on host port 8081 instead of 8080 because 8080 is taken surprisingly often. Inside the network it is still jenkins:8080, which matters for the Prometheus scrape config and the SonarQube webhook.
 
-<details>
-<summary><b>Equivalent plain <code>docker</code> commands</b> (if you prefer not to use Compose)</summary>
+Check with `docker compose ps` that all five are up. SonarQube needs a minute or two. `docker network inspect devsecops-net` should list all five containers.
+
+The same setup without Compose, as plain docker commands:
 
 ```bash
-# custom network
 docker network create devsecops-net
 
-# Jenkins (custom image with Ansible + plugins)
 docker build -t petclinic/jenkins:devsecops devsecops/jenkins
 docker run -d --name jenkins --network devsecops-net \
   -p 8081:8080 -p 50000:50000 \
   -v jenkins_home:/var/jenkins_home \
   petclinic/jenkins:devsecops
 
-# SonarQube
 docker run -d --name sonarqube --network devsecops-net \
   -p 9000:9000 -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
   -v sonarqube_data:/opt/sonarqube/data \
@@ -138,14 +119,12 @@ docker run -d --name sonarqube --network devsecops-net \
   -v sonarqube_logs:/opt/sonarqube/logs \
   sonarqube:community
 
-# Prometheus
 docker run -d --name prometheus --network devsecops-net \
   -p 9090:9090 \
   -v "$PWD/devsecops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
   -v prometheus_data:/prometheus \
   prom/prometheus:latest
 
-# Grafana
 docker run -d --name grafana --network devsecops-net \
   -p 3000:3000 \
   -e GF_SECURITY_ADMIN_USER=admin -e GF_SECURITY_ADMIN_PASSWORD=admin \
@@ -154,7 +133,6 @@ docker run -d --name grafana --network devsecops-net \
   -v "$PWD/devsecops/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
   grafana/grafana:latest
 
-# OWASP ZAP in daemon mode with the API open to the network
 docker run -d --name zap --network devsecops-net \
   -p 8090:8090 \
   ghcr.io/zaproxy/zaproxy:stable \
@@ -162,250 +140,120 @@ docker run -d --name zap --network devsecops-net \
     -config api.disablekey=true \
     -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
 ```
-</details>
 
-## 3. Generate the Jenkins → VM deploy key
+ZAP runs as a long lived daemon with its REST API open to the network. The pipeline talks to this API instead of starting a new ZAP container per build, which keeps the build fast and needs no docker socket inside Jenkins.
 
-Ansible (inside the Jenkins container) connects to the VM over SSH. Generate a
-dedicated keypair on your host:
+### 3. Generate the deploy key
 
 ```bash
 ssh-keygen -t ed25519 -f devsecops/vm/jenkins_key -C jenkins-deploy -N ""
 ```
 
-This produces `jenkins_key` (private — stays out of git, see `.gitignore`) and
-`jenkins_key.pub` (public — installed on the VM in the next step).
+The private key stays on the machine and later goes into a Jenkins credential. The public key goes onto the VM. Both files are gitignored.
 
-## 4. Set up the production web server (VM)
+### 4. Create the production VM
 
-### Option A — Vagrant (Intel machines, or ARM with a supported provider)
-
-```bash
-cd devsecops/vm
-vagrant up          # boots Ubuntu 22.04 at 192.168.56.10 and authorizes jenkins_key.pub
-```
-
-The VM's IP is fixed at **192.168.56.10** and the [Vagrantfile](vm/Vagrantfile)
-provisioner appends `jenkins_key.pub` to the `vagrant` user's
-`authorized_keys`. Nothing to edit in the inventory (it defaults to this IP and
-user).
-
-### Option B — Multipass (recommended on Apple Silicon)
+With Multipass, first paste the contents of jenkins_key.pub into devsecops/vm/multipass-cloud-init.yml, then:
 
 ```bash
-# paste the contents of devsecops/vm/jenkins_key.pub into
-# devsecops/vm/multipass-cloud-init.yml first, then:
 multipass launch 22.04 --name petclinic-prod --cpus 2 --memory 2G --disk 10G \
     --cloud-init devsecops/vm/multipass-cloud-init.yml
-multipass info petclinic-prod    # note the IPv4, e.g. 192.168.64.7
+multipass info petclinic-prod
 ```
 
-Then put the VM's address in **two places**:
+Note the IPv4 address. With Vagrant instead, `cd devsecops/vm && vagrant up` boots the VM at the fixed address 192.168.56.10 and installs the key automatically.
 
-- `devsecops/ansible/inventory.ini` → `ansible_host=<VM_IP> ansible_user=ubuntu`
-- `Jenkinsfile` → `PROD_HOST = '<VM_IP>'`
+The pipeline reads the VM address from the PROD_HOST value in the Jenkinsfile. It defaults to the Multipass address used during development. For a different VM either edit that default and push, or set PROD_HOST_OVERRIDE as an environment variable on the Jenkins container, which is what the automated setup does. For the Vagrant path also set PROD_USER_OVERRIDE to vagrant, since the login user differs.
 
-Commit and push those edits (Jenkins reads both from the repo).
-
-### Verify SSH works from the host
+Verify SSH works before going further:
 
 ```bash
-ssh -i devsecops/vm/jenkins_key vagrant@192.168.56.10 hostname   # or ubuntu@<multipass-ip>
-# expected output: petclinic-prod
+ssh -i devsecops/vm/jenkins_key ubuntu@<VM_IP> hostname
 ```
 
-## 5. Initial Jenkins setup
+If this prints petclinic-prod the key setup is correct. On newer macOS versions the Terminal may need the Local Network permission for this to work, the containers are not affected by that setting.
 
-1. Get the initial admin password:
+### 5. First Jenkins start
 
-   ```bash
-   docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
-   ```
-
-2. Open <http://localhost:8081>, paste the password.
-3. On the plugin screen choose **"Select plugins to install" → None** — every
-   required plugin (Blue Ocean, SonarQube Scanner, Prometheus metrics, HTML
-   Publisher, SSH Agent, JUnit, …) is already baked into the image via
-   [jenkins/plugins.txt](jenkins/plugins.txt).
-4. Create your admin user, accept the default URL, done.
-
-## 6. Add Jenkins credentials
-
-**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
-
-| # | Kind | ID (must match exactly) | Content |
-|---|---|---|---|
-| 1 | SSH Username with private key | `prod-vm-ssh` | Username `vagrant` (Vagrant) or `ubuntu` (Multipass); Private key → *Enter directly* → paste the contents of `devsecops/vm/jenkins_key` |
-| 2 | Secret text | `sonar-token` | The SonarQube token generated in step 7.2 (come back after step 7) |
-
-The `Jenkinsfile` references `prod-vm-ssh` in the deploy stage via the
-`sshagent` step.
-
-## 7. Configure SonarQube and connect it to Jenkins
-
-1. Open <http://localhost:9000> — log in with `admin` / `admin`, set a new
-   password when prompted.
-2. **Generate a token**: click your avatar → *My Account* → *Security* →
-   Generate token (type **Global Analysis Token**), e.g. name `jenkins`.
-   Copy it and store it in Jenkins as the `sonar-token` secret-text
-   credential (step 6, row 2).
-3. **Add a webhook** (lets the pipeline's *Quality Gate* stage get the result
-   instead of timing out): *Administration* → *Configuration* → *Webhooks* →
-   Create — name `jenkins`, URL:
-
-   ```
-   http://jenkins:8080/sonarqube-webhook/
-   ```
-
-   (Container-name URL — SonarQube and Jenkins share `devsecops-net`.)
-4. **Tell Jenkins where SonarQube is**: *Manage Jenkins → System →
-   SonarQube servers* →
-   - ☑ *Environment variables: Enable injection…*
-   - Add SonarQube → **Name: `SonarQube`** (must match the
-     `withSonarQubeEnv('SonarQube')` call in the Jenkinsfile),
-     **Server URL: `http://sonarqube:9000`**,
-     **Server authentication token: `sonar-token`**.
-   - Save.
-
-No scanner install is needed — the pipeline runs analysis through Maven
-(`./mvnw sonar:sonar`), which downloads the scanner plugin itself.
-
-**Quality-gate policy (documented design choice):** the pipeline's *Quality
-Gate* stage waits for SonarQube's verdict via the webhook, but is
-deliberately **non-blocking** — a failed gate marks the build UNSTABLE
-(yellow) instead of aborting before deployment. Rationale: the gate
-evaluates the inherited petclinic baseline, so a strict gate would block
-unrelated delivery work on day one; marking UNSTABLE keeps the signal
-visible while CD stays flowing. To make the gate strictly blocking instead,
-set `waitForQualityGate abortPipeline: true` and drop the surrounding
-`catchError` in the Jenkinsfile's Quality Gate stage.
-
-## 8. Configure the Prometheus plugin in Jenkins
-
-1. *Manage Jenkins → System* → scroll to **Prometheus** section.
-2. Keep **Path** = `prometheus` and the default namespace (`default`).
-3. **Uncheck "Enable authentication for Prometheus end-point"** (Prometheus
-   scrapes it anonymously inside the Docker network), check the options to
-   collect run/queue metrics, then Save.
-4. Verify the endpoint: <http://localhost:8081/prometheus/> should return
-   plain-text metrics.
-5. Verify Prometheus is scraping it: <http://localhost:9090/targets> → the
-   `jenkins` target must be **UP** (config: [prometheus/prometheus.yml](prometheus/prometheus.yml)).
-
-## 9. Create the pipeline job (SCM polling + Blue Ocean)
-
-1. Jenkins → **New Item** → name `spring-petclinic` → type **Pipeline** → OK.
-2. *(GitHub project — optional)* paste your fork URL.
-3. **Definition**: *Pipeline script from SCM*
-   - SCM: **Git**, Repository URL: `https://github.com/<YOUR_USER>/spring-petclinic.git`
-     (public fork → no credential needed)
-   - Branch Specifier: `*/main`
-   - Script Path: `Jenkinsfile`
-4. Save. **Build triggers don't need manual setup** — the Jenkinsfile declares
-   `pollSCM('H/2 * * * *')`, which registers SCM polling (~every 2 min) after
-   the **first** run. So click **Build Now** once to bootstrap.
-5. Watch it in **Blue Ocean**: click *Open Blue Ocean* in the sidebar — each
-   stage (Build & Unit Tests → SonarQube Analysis → Quality Gate → Deploy →
-   Smoke Test → ZAP) renders as a node in the visual pipeline graph.
-
-The first build takes several minutes (Maven downloads the world). When it's
-green:
-
-- **Test results** appear under the build's *Test Result* (JUnit).
-- **SonarQube analysis** appears at <http://localhost:9000/dashboard?id=spring-petclinic>.
-- **ZAP Security Report** appears as a link in the job's sidebar (published by
-  the HTML Publisher post-build action) and under *Build Artifacts*.
-
-  > If the ZAP report renders unstyled, relax Jenkins' CSP once via
-  > *Manage Jenkins → Script Console*:
-  > `System.setProperty("hudson.model.DirectoryBrowserSupport.CSP", "")`
-  > (dev setting only), or just download the archived `zap-report.html`.
-
-## 10. Grafana dashboards for Jenkins metrics
-
-Grafana is fully auto-provisioned from the repo:
-
-- Data source **Prometheus** → `http://prometheus:9090`
-  ([provisioning/datasources/prometheus.yml](grafana/provisioning/datasources/prometheus.yml))
-- Dashboard **"Jenkins – DevSecOps Pipeline"** in the *Jenkins* folder
-  ([dashboards/jenkins.json](grafana/dashboards/jenkins.json)) — job count,
-  queue size, executors, node status, last-build result, build durations,
-  JVM heap.
-
-Steps:
-
-1. Open <http://localhost:3000>, log in `admin` / `admin`.
-2. *Dashboards → Jenkins → Jenkins – DevSecOps Pipeline*. Panels populate
-   after the first pipeline run (build metrics only exist once builds exist).
-3. *(Optional)* Import the community dashboard ID **9964** ("Jenkins:
-   Performance and Health Overview"): *Dashboards → New → Import* → `9964` →
-   data source *Prometheus*.
-
-## 11. How the security analysis (ZAP) works
-
-ZAP runs permanently as a **daemon container** on `devsecops-net` with its
-REST API enabled (see the `zap` service in
-[docker-compose.yml](docker-compose.yml)). The pipeline's *Security Scan*
-stage drives it over HTTP:
-
-1. starts a fresh ZAP session per build,
-2. **spiders** the deployed app at `http://<PROD_HOST>:8080`,
-3. waits for the **passive scanner** to analyze every response
-   (baseline-style scan),
-4. optionally runs a full **active scan** — trigger via *Build with
-   Parameters* → check `ZAP_FULL_SCAN` (slow: it attacks every URL),
-5. downloads the **HTML report** and publishes it via the HTML Publisher
-   post-build action (**"ZAP Security Report"** link on the build page).
-
-## 12. End-to-end verification (deploy + welcome screen)
-
-After a green build:
-
-Open `<VM_IP>:8080` in your browser (e.g. `192.168.56.10:8080` for the
-Vagrant VM, or your Multipass VM's IP). The plain-http URL is written
-without its scheme here because the project's nohttp checkstyle rule
-forbids literal http:// links in the repository.
-
-You should see the PetClinic **welcome page** ("Welcome" + the pets image).
-On the VM itself the app runs as a systemd service:
+Get the initial password and open http://localhost:8081:
 
 ```bash
-ssh -i devsecops/vm/jenkins_key vagrant@192.168.56.10 systemctl status petclinic
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-The pipeline also asserts this automatically: the Ansible playbook waits for
-port 8080 and curls `/`, and the *Smoke Test* stage checks the page contains
-"PetClinic".
+On the plugin screen choose Select plugins to install and then None. Every needed plugin is already baked into the image through plugins.txt, installing more here only costs time. Create the admin user and accept the default URL.
 
-## 13. Prove CI/CD works: push a change, watch it auto-deploy
+### 6. Credentials
 
-1. Edit the welcome headline:
+Under Manage Jenkins, Credentials, Global, add two entries. The IDs have to match exactly because the Jenkinsfile references them.
 
-   ```bash
-   # src/main/resources/templates/welcome.html  → change <h2 th:text="#{welcome}">…
-   # or simpler, the message bundle:
-   sed -i '' 's/^welcome=.*/welcome=Welcome to PetClinic — CI\/CD works!/' \
-       src/main/resources/messages/messages.properties
-   git commit -am "Change welcome message to verify CI/CD"
-   git push origin main
-   ```
+1. Kind SSH Username with private key. ID prod-vm-ssh. Username ubuntu for Multipass or vagrant for Vagrant. Private key entered directly, paste the contents of devsecops/vm/jenkins_key.
+2. Kind Secret text. ID sonar-token. The token is created in the next step, so come back for this one.
 
-2. Within ~2 minutes the SCM poll detects the commit and a new build starts
-   automatically (watch it appear in Blue Ocean — trigger shows *Started by an
-   SCM change*).
-3. When the pipeline finishes, reload `http://<VM_IP>:8080` — the new welcome
-   text is live on the production VM. 🎉
+### 7. SonarQube
 
-## 14. Troubleshooting
+Open http://localhost:9000, log in with admin and admin, set a new password when asked.
 
-| Symptom | Fix |
+Generate a token under My Account, Security. Type Global Analysis Token. Copy it immediately, it is shown once. Store it in Jenkins as the sonar-token credential.
+
+Create a webhook under Administration, Configuration, Webhooks with the URL http://jenkins:8080/sonarqube-webhook/ so the quality gate result reaches the pipeline. Without it the Quality Gate stage waits until its timeout.
+
+Then in Jenkins under Manage Jenkins, System, section SonarQube servers, enable the environment variable injection and add a server named SonarQube with URL http://sonarqube:9000 and the sonar-token credential. The name matters, withSonarQubeEnv('SonarQube') in the Jenkinsfile looks it up.
+
+No scanner installation is needed. The analysis runs through Maven with mvnw sonar:sonar, which fetches the scanner on its own.
+
+About the quality gate policy. The gate result is evaluated in its own stage but a failed gate marks the build UNSTABLE instead of aborting it. The reason is that the gate judges the inherited petclinic baseline, and blocking every deployment on day one because of old findings would stop delivery without making the code better. The signal stays visible in yellow. To make the gate strict, change abortPipeline to true and remove the catchError wrapper in the Quality Gate stage.
+
+### 8. Prometheus and Grafana
+
+The Prometheus plugin is already installed and exposes metrics at http://localhost:8081/prometheus/ with its default settings. Prometheus scrapes that path inside the network, the config is in prometheus/prometheus.yml. Verify at http://localhost:9090/targets that the jenkins target shows UP.
+
+Grafana needs no manual setup at all. The data source and a Jenkins dashboard are provisioned from files at startup. Log in at http://localhost:3000 with admin and admin and open Dashboards, Jenkins. The build panels stay empty until the first build has run, which is expected. The community dashboard 9964, Jenkins Performance and Health Overview, can be imported additionally under Dashboards, New, Import.
+
+### 9. The pipeline job
+
+Create a new item of type Pipeline named spring-petclinic. Under Pipeline choose Pipeline script from SCM, SCM Git, the URL of your fork, branch */main, script path Jenkinsfile. Save and press Build Now once.
+
+The first manual build matters because the pollSCM trigger declared inside the Jenkinsfile only registers after a run. From then on Jenkins checks GitHub every two minutes and builds on its own.
+
+The first build takes several minutes because Maven downloads all dependencies. Later builds take around two minutes. Blue Ocean under Open Blue Ocean shows the stages as a graph.
+
+### 10. What the pipeline does
+
+1. Build and unit tests through the Maven wrapper. Two integration test classes are excluded because they need a Docker daemon through Testcontainers, which the Jenkins container does not have. The stage also deletes the ZAP report of the previous run first, because the repository enforces a nohttp checkstyle rule that rejects any leftover file containing plain http URLs. Both of these were found the hard way through failing builds.
+2. SonarQube analysis through Maven.
+3. Quality gate check as described above.
+4. Deployment. Ansible runs inside the Jenkins container, connects to the VM as declared by PROD_HOST with an inline inventory, installs Java 17 if needed, copies the JAR, and runs the app as a systemd service. The service restarts on failure and survives VM reboots. The playbook waits for port 8080 and checks the welcome page before reporting success.
+5. Smoke test with curl against the deployed page.
+6. ZAP scan. The pipeline opens a fresh ZAP session, spiders the deployed site, waits for the passive scanner to finish, and downloads the HTML report. The report is published on the build page through the HTML Publisher post-build action and also archived as an artifact. A full active scan can be enabled per build with the ZAP_FULL_SCAN parameter, it is off by default because it takes long.
+
+### 11. End to end verification
+
+After a green build open http://<VM_IP>:8080 in a browser, the PetClinic welcome page must appear. On the VM itself `systemctl status petclinic` shows the running service.
+
+To verify the automation, change something visible and push it:
+
+```bash
+sed -i '' 's/^welcome=.*/welcome=Welcome to PetClinic - CI CD works/' \
+    src/main/resources/messages/messages.properties
+git commit -am "Change welcome message"
+git push origin main
+```
+
+Within about two minutes a new build starts on its own, the cause on the build page reads Started by an SCM change. After it finishes, reloading the VM page shows the new text.
+
+## Troubleshooting
+
+| Problem | Cause and fix |
 |---|---|
-| SonarQube container exits / ES bootstrap error | Give Docker ≥ 4 GB RAM; on Linux `sudo sysctl -w vm.max_map_count=262144` |
-| `MySqlIntegrationTests` fail in Jenkins | Expected without a Docker daemon in the container — the Jenkinsfile already excludes them (`-Dtest='!MySqlIntegrationTests,!PostgresIntegrationTests'`) |
-| Build fails with *spring-javaformat* violations | Run `./mvnw spring-javaformat:apply` locally, commit, push |
-| Quality Gate stage times out | The SonarQube webhook (step 7.3) is missing or the URL isn't `http://jenkins:8080/sonarqube-webhook/` |
-| Deploy stage: `Permission denied (publickey)` | Credential `prod-vm-ssh` must contain the **private** key `devsecops/vm/jenkins_key`, and its username must match the VM user (`vagrant`/`ubuntu`) |
-| Deploy stage: unreachable host | VM IP changed (Multipass IPs can change after restart) — re-check `multipass info`, update `inventory.ini` + `PROD_HOST`, push |
-| Prometheus target `jenkins` is DOWN | Step 8: authentication for the `/prometheus/` endpoint must be disabled |
-| Grafana panels empty | Run the pipeline at least once; build metrics only appear after builds exist |
-| ZAP stage can't reach the app | The VM must be reachable *from containers*: `docker exec zap curl -s http://<VM_IP>:8080` — if this fails, the container network can't route to the VM's subnet (use Multipass/Vagrant defaults documented above, which are host-routable) |
+| SonarQube container exits with 137 | Docker has too little memory, give it 4 GB or more |
+| Integration tests fail in Jenkins | Expected without Docker in the container, the Jenkinsfile already excludes MySqlIntegrationTests and PostgresIntegrationTests |
+| Build fails on nohttp checkstyle | The repo forbids plain http URLs in files. Watch out for leftover reports in the workspace and for documentation containing http links with IP addresses |
+| Build fails on spring-javaformat | Run ./mvnw spring-javaformat:apply, commit, push |
+| Quality Gate stage times out | The SonarQube webhook is missing or has the wrong URL, it must be http://jenkins:8080/sonarqube-webhook/ |
+| Deploy fails with Permission denied | The prod-vm-ssh credential does not contain the right private key or the username does not match the VM user |
+| Deploy cannot reach the VM | Multipass IPs can change after a host reboot, check multipass info and update PROD_HOST |
+| Prometheus target down | The metrics endpoint moved or authentication got enabled in the plugin settings, defaults work |
+| Grafana panels empty | No builds yet, run the pipeline once |
+| ZAP report looks unstyled in Jenkins | The Jenkins content security policy strips the styling, the archived zap-report.html artifact renders fine when downloaded |
+| ZAP cannot reach the app | The containers must be able to route to the VM address, test with docker exec zap curl http://<VM_IP>:8080 |
