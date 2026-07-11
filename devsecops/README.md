@@ -1,5 +1,7 @@
 # DevSecOps Pipeline for Spring PetClinic
 
+Demo video: <https://drive.google.com/file/d/1jL85_NXHebUxwilYhl81haEZ1Po4K1-9/view?usp=sharing>
+
 This project builds a complete DevSecOps pipeline around the Spring PetClinic application. A code push to GitHub is picked up by Jenkins, built and tested, analyzed by SonarQube, deployed to a production VM with Ansible, smoke tested, and finally scanned by OWASP ZAP. Prometheus collects Jenkins metrics and Grafana visualizes them.
 
 All five tools run as Docker containers on one custom bridge network called devsecops-net. Containers reach each other by name, for example http://sonarqube:9000 or http://zap:8090. The production web server is deliberately not a container. It is a real Ubuntu VM, because that is what the assignment asks for and because it forces the deployment to work over SSH like a real remote server would.
